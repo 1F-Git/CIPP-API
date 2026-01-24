@@ -1,4 +1,4 @@
-function Invoke-CIPPTestsRun {
+function Invoke-CIPPDBTestsRun {
     <#
     .FUNCTIONALITY
         Entrypoint
@@ -13,6 +13,17 @@ function Invoke-CIPPTestsRun {
 
     Write-Information "Starting tests run for tenant: $TenantFilter"
 
+    Write-Host 'Checking rerun protection'
+    $RerunParams = @{
+        TenantFilter = $TenantFilter
+        Type         = 'CippTests'
+        API          = 'CippTests'
+    }
+    $Rerun = Test-CIPPRerun @RerunParams
+    if ($Rerun -eq $true) {
+        Write-Host "rerun is true for $($TenantFilter)"
+        return $true
+    }
     try {
         $AllTests = Get-Command -Name 'Invoke-CippTest*' -Module CIPPCore | Select-Object -ExpandProperty Name | ForEach-Object {
             $_ -replace '^Invoke-CippTest', ''
@@ -31,7 +42,7 @@ function Invoke-CIPPTestsRun {
             $TenantsWithData
         } else {
             $DbCounts = Get-CIPPDbItem -TenantFilter $TenantFilter -CountsOnly
-            if (($DbCounts | Measure-Object -Property Count -Sum).Sum -gt 0) {
+            if (($DbCounts | Measure-Object -Property DataCount -Sum).Sum -gt 0) {
                 @($TenantFilter)
             } else {
                 Write-LogMessage -API 'Tests' -tenant $TenantFilter -message 'Tenant has no data in database. Skipping tests.' -sev Info
@@ -55,7 +66,7 @@ function Invoke-CIPPTestsRun {
             }
         }
 
-        Write-Information "Built batch of $($Batch.Count) test activities ($($AllTests.Count) tests × $($AllTenantsList.Count) tenants)"
+        Write-Information "Built batch of $($Batch.Count) test activities ($($AllTests.Count) tests x $($AllTenantsList.Count) tenants)"
 
         $InputObject = [PSCustomObject]@{
             OrchestratorName = 'TestsRun'

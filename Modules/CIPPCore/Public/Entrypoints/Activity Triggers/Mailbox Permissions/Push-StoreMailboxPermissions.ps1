@@ -1,7 +1,7 @@
 function Push-StoreMailboxPermissions {
     <#
     .SYNOPSIS
-        Post-execution function to aggregate and store all mailbox permissions
+        Post-execution function to aggregate and store all mailbox and calendar permissions
 
     .DESCRIPTION
         Collects results from all batches and stores them in the reporting database
@@ -16,7 +16,7 @@ function Push-StoreMailboxPermissions {
     $Results = $Item.Results
 
     try {
-        Write-Information "Storing mailbox permissions for tenant $TenantFilter"
+        Write-Information "Storing mailbox and calendar permissions for tenant $TenantFilter"
         Write-Information "Received $($Results.Count) batch results"
 
         # Log each result for debugging
@@ -28,6 +28,7 @@ function Push-StoreMailboxPermissions {
         # Aggregate results by command type from all batches
         $AllMailboxPermissions = [System.Collections.Generic.List[object]]::new()
         $AllRecipientPermissions = [System.Collections.Generic.List[object]]::new()
+        $AllCalendarPermissions = [System.Collections.Generic.List[object]]::new()
 
         foreach ($BatchResult in $Results) {
             # Activity functions may return an array [hashtable, "status message"]
@@ -43,32 +44,69 @@ function Push-StoreMailboxPermissions {
                 # Results are grouped by cmdlet name due to ReturnWithCommand
                 if ($ActualResult['Get-MailboxPermission']) {
                     Write-Information "Adding $($ActualResult['Get-MailboxPermission'].Count) mailbox permissions"
-                    $AllMailboxPermissions.AddRange($ActualResult['Get-MailboxPermission'])
+                    foreach ($perm in $ActualResult['Get-MailboxPermission']) {
+                        $AllMailboxPermissions.Add($perm)
+                    }
                 }
                 if ($ActualResult['Get-RecipientPermission']) {
                     Write-Information "Adding $($ActualResult['Get-RecipientPermission'].Count) recipient permissions"
-                    $AllRecipientPermissions.AddRange($ActualResult['Get-RecipientPermission'])
+                    foreach ($perm in $ActualResult['Get-RecipientPermission']) {
+                        $AllRecipientPermissions.Add($perm)
+                    }
+                }
+                if ($ActualResult['Get-MailboxFolderPermission']) {
+                    Write-Information "Adding $($ActualResult['Get-MailboxFolderPermission'].Count) calendar permissions"
+                    foreach ($perm in $ActualResult['Get-MailboxFolderPermission']) {
+                        $AllCalendarPermissions.Add($perm)
+                    }
                 }
             } else {
                 Write-Information "Skipping non-hashtable result: $($ActualResult.GetType().Name)"
             }
         }
 
-# Combine all permissions (mailbox and recipient) into a single collection
+        # Combine all permissions (mailbox and recipient) into a single collection
         $AllPermissions = [System.Collections.Generic.List[object]]::new()
-        $AllPermissions.AddRange($AllMailboxPermissions)
-        $AllPermissions.AddRange($AllRecipientPermissions)
+        foreach ($perm in $AllMailboxPermissions) {
+            $AllPermissions.Add($perm)
+        }
+        foreach ($perm in $AllRecipientPermissions) {
+            $AllPermissions.Add($perm)
+        }
 
         Write-Information "Aggregated $($AllPermissions.Count) total permissions ($($AllMailboxPermissions.Count) mailbox + $($AllRecipientPermissions.Count) recipient)"
+        Write-Information "Aggregated $($AllCalendarPermissions.Count) calendar permissions"
 
         # Store all permissions together as MailboxPermissions
         if ($AllPermissions.Count -gt 0) {
-            Add-CIPPDbItem -TenantFilter $TenantFilter -Type 'MailboxPermissions' -Data $AllPermissions
-            Add-CIPPDbItem -TenantFilter $TenantFilter -Type 'MailboxPermissions' -Data $AllPermissions -Count
+            Add-CIPPDbItem -TenantFilter $TenantFilter -Type 'MailboxPermissions' -Data $AllPermissions.ToArray()
+            Add-CIPPDbItem -TenantFilter $TenantFilter -Type 'MailboxPermissions' -Data @{ Count = $AllPermissions.Count } -Count
             Write-LogMessage -API 'CIPPDBCache' -tenant $TenantFilter -message "Cached $($AllPermissions.Count) mailbox permission records" -sev Info
         } else {
-            Write-LogMessage -API 'CIPPDBCache' -tenant $TenantFilter -message 'No permissions found to cache' -sev Info
+            Write-LogMessage -API 'CIPPDBCache' -tenant $TenantFilter -message 'No mailbox permissions found to cache' -sev Info
         }
+
+        # Clear to free memory before processing calendar permissions
+        $AllMailboxPermissions.Clear()
+        $AllRecipientPermissions.Clear()
+        $AllPermissions.Clear()
+        $AllMailboxPermissions = $null
+        $AllRecipientPermissions = $null
+        $AllPermissions = $null
+
+        # Store calendar permissions separately
+        if ($AllCalendarPermissions.Count -gt 0) {
+            Add-CIPPDbItem -TenantFilter $TenantFilter -Type 'CalendarPermissions' -Data $AllCalendarPermissions.ToArray()
+            Add-CIPPDbItem -TenantFilter $TenantFilter -Type 'CalendarPermissions' -Data @{ Count = $AllCalendarPermissions.Count } -Count
+            Write-LogMessage -API 'CIPPDBCache' -tenant $TenantFilter -message "Cached $($AllCalendarPermissions.Count) calendar permission records" -sev Info
+        } else {
+            Write-LogMessage -API 'CIPPDBCache' -tenant $TenantFilter -message 'No calendar permissions found to cache' -sev Info
+        }
+
+        # Final cleanup
+        $AllCalendarPermissions.Clear()
+        $AllCalendarPermissions = $null
+        [System.GC]::Collect()
 
         return
 
