@@ -9,8 +9,21 @@ function Invoke-ExecRestoreBackup {
     param($Request, $TriggerMetadata)
 
     $APIName = $Request.Params.CIPPEndpoint
-    try {
 
+    # Types natively supported by Azure Table Storage — preserve these as-is
+    $AzureTableTypes = @(
+        [string], [int], [long], [double], [bool], [datetime], [guid], [byte[]]
+    )
+    $RestrictedTables = @('AccessRoleGroups', 'CustomRoles') # tables that require superadmin to restore
+
+    # Resolve the calling user's roles, including Entra group-based roles
+    $CallingUser = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($Request.Headers.'x-ms-client-principal')) | ConvertFrom-Json
+    if (($CallingUser.userRoles | Measure-Object).Count -eq 2 -and $CallingUser.userRoles -contains 'authenticated' -and $CallingUser.userRoles -contains 'anonymous') {
+        $CallingUser = Test-CIPPAccessUserRole -User $CallingUser
+    }
+    $IsSuperAdmin = $CallingUser.userRoles -contains 'superadmin'
+
+    try {
         if ($Request.Body.BackupName -like 'CippBackup_*') {
             # Use Get-CIPPBackup which already handles fetching from blob storage
             $Backup = Get-CIPPBackup -Type 'CIPP' -Name $Request.Body.BackupName
@@ -43,9 +56,19 @@ function Invoke-ExecRestoreBackup {
                 }
                 $RestoredCount = 0
                 $BackupData | ForEach-Object {
+                    if ($_.table -like 'cache*') {
+                        return
+                    }
+                    if ($RestrictedTables -contains $_.table -and -not $IsSuperAdmin) {
+                        Write-Information "Skipping restricted table '$($_.table)' - user does not have superadmin rights"
+                        return
+                    }
                     $Table = Get-CippTable -tablename $_.table
                     $ht2 = @{}
-                    $_.psobject.properties | ForEach-Object { $ht2[$_.Name] = [string]$_.Value }
+                    $_.psobject.properties | Where-Object { $_.Name -ne 'table' } | ForEach-Object {
+                        $val = $_.Value
+                        $ht2[$_.Name] = if ($null -ne $val -and $AzureTableTypes -contains $val.GetType()) { $val } else { [string]$val }
+                    }
                     $Table.Entity = $ht2
                     Add-AzDataTableEntity @Table -Force
                     $RestoredCount++
@@ -62,9 +85,19 @@ function Invoke-ExecRestoreBackup {
         } else {
             $RestoredCount = 0
             foreach ($line in ($Request.body | Select-Object * -ExcludeProperty ETag, Timestamp)) {
+                if ($line.table -like 'cache*') {
+                    continue
+                }
+                if ($RestrictedTables -contains $line.table -and -not $IsSuperAdmin) {
+                    Write-Information "Skipping restricted table '$($line.table)' - user does not have superadmin rights"
+                    continue
+                }
                 $Table = Get-CippTable -tablename $line.table
                 $ht2 = @{}
-                $line.psobject.properties | ForEach-Object { $ht2[$_.Name] = [string]$_.Value }
+                $line.psobject.properties | Where-Object { $_.Name -ne 'table' } | ForEach-Object {
+                    $val = $_.Value
+                    $ht2[$_.Name] = if ($null -ne $val -and $AzureTableTypes -contains $val.GetType()) { $val } else { [string]$val }
+                }
                 $Table.Entity = $ht2
                 Add-AzDataTableEntity @Table -Force
                 $RestoredCount++
