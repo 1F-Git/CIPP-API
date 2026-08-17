@@ -4,7 +4,7 @@
     "cat": "Copilot (M365) Standards",
     "tag": [],
     "helpText": "Configures Microsoft 365 Copilot tenant policy settings: Copilot Chat pinning, blocking Copilot access to open content, Designer image generation, web search, and admin-center Copilot. Each setting can be left unconfigured, enabled, or disabled. These settings are managed through the Copilot policy service (Cloud Policy / Intune) and are applied at the tenant level.",
-    "docsDescription": "Manages Microsoft 365 Copilot admin policy settings via the `/copilot/admin/policySettings` Microsoft Graph API (beta). Each of the five supported settings can be independently set or left unmanaged using the \"Do not configure\" option. NOTE: this API currently requires delegated authentication and supports only tenant-level policies; settings scoped to group-level policies return an error and are skipped. The exact accepted value per setting is a string (commonly \"1\"/\"0\") and should be validated against a Copilot-licensed tenant.",
+    "docsDescription": "Manages Microsoft 365 Copilot admin policy settings via the `/copilot/admin/policySettings` Microsoft Graph API (beta). Each of the five supported settings can be independently set or left unmanaged using the \"Do not configure\" option. NOTE: this API currently requires delegated authentication and supports only tenant-level policies; settings scoped to group-level policies return an error and are skipped. Values are strings whose meaning is per-setting, not uniform: web search is three-state (\"0\" enabled everywhere, \"1\" disabled everywhere, \"2\" disabled in Copilot Work mode only) and Designer image generation is inverted (\"1\" disables it, \"0\" enables it). Graph treats these as opaque strings and validates nothing, so do not assume 1=on/0=off for a setting you have not verified against a Copilot-licensed tenant.",
     "executiveText": "Provides centralized governance of Microsoft 365 Copilot capabilities across the organization. Administrators can control whether Copilot Chat is pinned for users, whether Copilot can access open files, and whether features such as image generation and web search are available, helping balance employee productivity with data governance and compliance requirements.",
     "addedComponent": [
       {
@@ -39,8 +39,8 @@
         "name": "standards.CopilotSettings.imageGeneration",
         "options": [
           { "label": "Do not configure", "value": "donotconfigure" },
-          { "label": "Enabled", "value": "1" },
-          { "label": "Disabled", "value": "0" }
+          { "label": "Disabled", "value": "1" },
+          { "label": "Enabled", "value": "0" }
         ]
       },
       {
@@ -51,11 +51,11 @@
         "name": "standards.CopilotSettings.allowWebSearch",
         "options": [
           { "label": "Do not configure", "value": "donotconfigure" },
-          { "label": "Enabled in Microsoft 365 Copilot and Microsoft 365 Copilot Chat", "value": "2" },
+          { "label": "Enabled in Microsoft 365 Copilot and Microsoft 365 Copilot Chat", "value": "0" },
           { "label": "Disabled in Microsoft 365 Copilot and Microsoft 365 Copilot Chat", "value": "1" },
           {
             "label": "Disabled in Microsoft 365 Copilot Work mode, Enabled in Microsoft 365 Copilot Chat",
-            "value": "0"
+            "value": "2"
           }
         ]
       },
@@ -2336,6 +2336,71 @@
     "impactColour": "info",
     "addedDate": "2024-06-25",
     "powershellEquivalent": "Set-Mailbox -LitigationHoldEnabled $true",
+    "recommendedBy": [],
+    "requiredCapabilities": [
+      "EXCHANGE_S_STANDARD",
+      "EXCHANGE_S_ENTERPRISE",
+      "EXCHANGE_S_STANDARD_GOV",
+      "EXCHANGE_S_ENTERPRISE_GOV",
+      "EXCHANGE_LITE"
+    ]
+  },
+  {
+    "name": "standards.SetDefaultMailboxFont",
+    "cat": "Exchange Standards",
+    "tag": [],
+    "helpText": "Sets the default compose font name, size and colour for all user and shared mailboxes. Font size is the 1-7 scale Exchange stores, not a point size. Applies to Outlook on the web and new Outlook only - classic Outlook for Windows/Mac uses its own local font settings and is not affected.",
+    "docsDescription": "Loops through all UserMailbox and SharedMailbox recipients and sets the Outlook on the web default compose font using `Set-MailboxMessageConfiguration`. Mailboxes already matching the configured font are skipped, so steady-state runs make no writes. Font size is the integer 1-7 scale Exchange stores rather than a point size: 3 is the Exchange default and corresponds to 12pt. Note that these settings apply to Outlook on the web and the new Outlook client only; classic Outlook for Windows and Mac read their compose font from local client settings. See [Microsoft's documentation.](https://learn.microsoft.com/powershell/module/exchangepowershell/set-mailboxmessageconfiguration)",
+    "executiveText": "Applies a consistent default font, size and colour to outgoing email so that messages from across the organisation look uniform and on-brand. This affects the web and new Outlook clients; users can still change the font on an individual message.",
+    "addedComponent": [
+      {
+        "type": "autoComplete",
+        "multiple": false,
+        "creatable": true,
+        "required": true,
+        "name": "standards.SetDefaultMailboxFont.DefaultFontName",
+        "label": "Default font name",
+        "helperText": "Font applied to new messages. You can type a font that is not in this list.",
+        "options": [
+          { "label": "Aptos", "value": "Aptos" },
+          { "label": "Arial", "value": "Arial" },
+          { "label": "Calibri", "value": "Calibri" },
+          { "label": "Cambria", "value": "Cambria" },
+          { "label": "Georgia", "value": "Georgia" },
+          { "label": "Helvetica", "value": "Helvetica" },
+          { "label": "Segoe UI", "value": "Segoe UI" },
+          { "label": "Tahoma", "value": "Tahoma" },
+          { "label": "Times New Roman", "value": "Times New Roman" },
+          { "label": "Trebuchet MS", "value": "Trebuchet MS" },
+          { "label": "Verdana", "value": "Verdana" }
+        ]
+      },
+      {
+        "type": "number",
+        "required": true,
+        "name": "standards.SetDefaultMailboxFont.DefaultFontSize",
+        "label": "Default font size (1-7)",
+        "defaultValue": 3,
+        "helperText": "Exchange stores a 1-7 size scale, not a point size. 3 is the Exchange default and corresponds to 12pt; lower is smaller, higher is larger.",
+        "validators": {
+          "min": { "value": 1, "message": "Minimum value is 1" },
+          "max": { "value": 7, "message": "Maximum value is 7" }
+        }
+      },
+      {
+        "type": "textField",
+        "required": true,
+        "name": "standards.SetDefaultMailboxFont.DefaultFontColor",
+        "label": "Default font colour",
+        "placeholder": "#000000",
+        "helperText": "Six-digit hex colour in the #xxxxxx format, for example #000000. Exchange stores six digits, so shorthand such as #000 is not accepted."
+      }
+    ],
+    "label": "Set default mailbox font, size and colour",
+    "impact": "Low Impact",
+    "impactColour": "info",
+    "addedDate": "2026-08-04",
+    "powershellEquivalent": "Set-MailboxMessageConfiguration -DefaultFontName -DefaultFontSize -DefaultFontColor",
     "recommendedBy": [],
     "requiredCapabilities": [
       "EXCHANGE_S_STANDARD",
@@ -5662,10 +5727,6 @@
         "options": [
           { "label": "Everyone", "value": "EveryoneUserOverride" },
           { "label": "People in my organization", "value": "EveryoneInCompanyUserOverride" },
-          {
-            "label": "People in my organization and trusted organizations",
-            "value": "EveryoneInSameAndFederatedCompanyUserOverride"
-          },
           { "label": "Only organizer", "value": "OrganizerOnlyUserOverride" }
         ]
       },
@@ -7536,7 +7597,7 @@
     "impact": "High Impact",
     "impactColour": "danger",
     "addedDate": "2026-04-28",
-    "powershellEquivalent": "Set-SPOTenant -CustomScriptsRestrictMode $true",
+    "powershellEquivalent": "Portal only",
     "recommendedBy": ["CIPP"],
     "requiredCapabilities": [
       "SHAREPOINTWAC",

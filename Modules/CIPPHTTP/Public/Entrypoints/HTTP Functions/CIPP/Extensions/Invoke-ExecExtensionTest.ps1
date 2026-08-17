@@ -4,6 +4,8 @@ Function Invoke-ExecExtensionTest {
         Entrypoint,AnyTenant
     .ROLE
         CIPP.Extension.Read
+    .DESCRIPTION
+        Tests the stored credentials for a configured third-party integration and reports whether CIPP can connect. extensionName selects which one: HaloPSA, Gradient, NinjaOne, PWPush, Hudu, Sherweb, HIBP or GitHub.
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
@@ -78,7 +80,14 @@ Function Invoke-ExecExtensionTest {
                 $Results = [pscustomobject]@{'Results' = 'Successfully Connected to HIBP' }
             }
             'GitHub' {
-                $GitHubResponse = Invoke-GitHubApiRequest -Method 'GET' -Path 'user' -ReturnHeaders
+                # NoFallback: the test must judge the configured token itself - the anonymous
+                # function-app fallback would turn a rejected PAT into a false success.
+                try {
+                    $GitHubResponse = Invoke-GitHubApiRequest -Method 'GET' -Path 'user' -ReturnHeaders -NoFallback
+                } catch {
+                    $Results = [pscustomobject]@{ 'Results' = "GitHub rejected the configured API token: $($_.Exception.Message). Check that the API key is valid and has not expired, then try again." }
+                    break
+                }
                 if ($GitHubResponse.login) {
                     if ($GitHubResponse.Headers.'x-oauth-scopes') {
                         $Results = [pscustomobject]@{ 'Results' = "Successfully connected to GitHub user: $($GitHubResponse.login) with scopes: $($GitHubResponse.Headers.'x-oauth-scopes')" }

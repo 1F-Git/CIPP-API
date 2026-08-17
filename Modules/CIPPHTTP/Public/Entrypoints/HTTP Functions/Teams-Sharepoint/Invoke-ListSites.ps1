@@ -14,8 +14,8 @@ function Invoke-ListSites {
 
     $TenantFilter = $Request.Query.TenantFilter
     $Type = $Request.Query.Type
-    $UseReportDB = $Request.Query.UseReportDB
-
+    # Serve from the reporting database cache instead of live Graph. Much faster, especially for AllTenants.
+    $UseReportDB = $Request.Query.UseReportDB -eq $true
     if (!$TenantFilter) {
         return ([HttpResponseContext]@{
                 StatusCode = [HttpStatusCode]::BadRequest
@@ -30,7 +30,7 @@ function Invoke-ListSites {
             })
     }
 
-    if ($TenantFilter -eq 'AllTenants' -or $UseReportDB -eq 'true') {
+    if ($TenantFilter -eq 'AllTenants' -or $UseReportDB) {
         try {
             if ($Type -eq 'SharePointSiteUsage') {
                 $GraphRequest = Get-CIPPSharePointSiteUsageReport -TenantFilter $TenantFilter -ErrorAction Stop
@@ -44,7 +44,7 @@ function Invoke-ListSites {
         }
 
         if ($null -ne $GraphRequest) {
-            if ($Request.query.URLOnly -eq 'true') {
+            if ($Request.query.URLOnly -eq $true) {
                 $GraphRequest = $GraphRequest | Where-Object { $null -ne $_.webUrl }
             }
 
@@ -104,8 +104,11 @@ function Invoke-ListSites {
                 ownerPrincipalName          = $SiteUsage.ownerPrincipalName
                 lastActivityDate            = $SiteUsage.lastActivityDate
                 fileCount                   = $SiteUsage.fileCount
-                storageUsedInGigabytes      = [math]::round($SiteUsage.storageUsedInBytes / 1GB, 2)
-                storageAllocatedInGigabytes = [math]::round($SiteUsage.storageAllocatedInBytes / 1GB, 2)
+                # Null, not 0, when the usage report has no row for this site: '0' reads as an
+                # authoritative "this site is empty" and is indistinguishable from a real empty
+                # site, which is exactly the confusion an absent usage report should not create.
+                storageUsedInGigabytes      = if ($null -ne $SiteUsage.storageUsedInBytes) { [math]::round([double]$SiteUsage.storageUsedInBytes / 1GB, 2) } else { $null }
+                storageAllocatedInGigabytes = if ($null -ne $SiteUsage.storageAllocatedInBytes) { [math]::round([double]$SiteUsage.storageAllocatedInBytes / 1GB, 2) } else { $null }
                 storageUsedInBytes          = $SiteUsage.storageUsedInBytes
                 storageAllocatedInBytes     = $SiteUsage.storageAllocatedInBytes
                 rootWebTemplate             = $SiteUsage.rootWebTemplate
@@ -141,7 +144,7 @@ function Invoke-ListSites {
         $StatusCode = [HttpStatusCode]::Forbidden
         $GraphRequest = $ErrorMessage
     }
-    if ($Request.query.URLOnly -eq 'true') {
+    if ($Request.query.URLOnly -eq $true) {
         $GraphRequest = $GraphRequest | Where-Object { $null -ne $_.webUrl }
     }
 
