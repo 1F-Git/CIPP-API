@@ -27,6 +27,9 @@ function Add-CIPPScheduledTask {
     )
 
     try {
+        # The [pscustomobject] parameter type doesn't convert hashtables, and PSObject.Properties can't see hashtable keys
+        if ($Task -is [System.Collections.IDictionary]) { $Task = [pscustomobject]$Task }
+        if ($Task.Parameters -is [System.Collections.IDictionary]) { $Task.Parameters = [pscustomobject]$Task.Parameters }
 
         $Table = Get-CIPPTable -TableName 'ScheduledTasks'
 
@@ -34,7 +37,7 @@ function Add-CIPPScheduledTask {
             try {
                 $Filter = "PartitionKey eq 'ScheduledTask' and RowKey eq '$($RowKey)'"
                 $ExistingTask = (Get-CIPPAzDataTableEntity @Table -Filter $Filter)
-                $ExistingTask.ScheduledTime = [int64](([datetime]::UtcNow) - (Get-Date '1/1/1970')).TotalSeconds
+                $ExistingTask.ScheduledTime = [string][int64](([datetime]::UtcNow) - (Get-Date '1/1/1970')).TotalSeconds
                 $ExistingTask.TaskState = 'Planned'
                 Add-CIPPAzDataTableEntity @Table -Entity $ExistingTask -Force
                 Write-LogMessage -headers $Headers -API 'RunNow' -message "Task $($ExistingTask.Name) scheduled to run now" -Sev 'Info' -Tenant $ExistingTask.Tenant
